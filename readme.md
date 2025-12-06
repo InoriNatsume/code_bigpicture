@@ -31,20 +31,20 @@ Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP �
 
 ```mermaid
 graph TD
-    User[User] --> GUI[PyQt6 GUI]
-    AI[LLM (Claude/GPT)] --> MCP[MCP Server]
+    User[User] --> GUI["PyQt6 GUI"]
+    AI["LLM (Claude/GPT)"] --> MCP["MCP Server"]
     
-    subgraph Core Engine (Library)
+    subgraph "Core Engine (Library)"
         GUI --> ParserFactory
         MCP --> ParserFactory
-        ParserFactory --> TreeSitter[Tree-sitter Parsers]
-        TreeSitter --> SymbolNode[Data Model]
-        TreeSitter --> CallGraph[Call Graph Builder]
-        CallGraph --> Incoming[Incoming Calls]
-        CallGraph --> Outgoing[Outgoing Calls]
+        ParserFactory --> TreeSitter["Tree-sitter Parsers"]
+        TreeSitter --> SymbolNode["Data Model"]
+        TreeSitter --> CallGraph["Call Graph Builder"]
+        CallGraph --> Incoming["Incoming Calls"]
+        CallGraph --> Outgoing["Outgoing Calls"]
     end
     
-    TreeSitter --> FileSystem[Source Files]
+    TreeSitter --> FileSystem["Source Files"]
 ```
 
 ### 2.1 디렉토리 구조 (Directory Structure)
