@@ -1,6 +1,6 @@
 # Code-Context-Bridge v4.2
 
-Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP 서버를 통해 코드 구조, 심볼, 함수 호출 관계를 시각화하고 AI 에이전트에게 제공합니다.
+Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP 서버를 통해 코드 구조, 심볼, 함수 호출 관계를 시각화하고 AI 에이전트에게 제공합니다. ghidra에서 모티브를 얻었습니다.
 
 ## 1. 프로젝트 개요 (Overview)
 
