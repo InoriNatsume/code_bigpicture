@@ -239,3 +239,10 @@ class SymbolNode:
 4.  **Error Resilience:** `BaseParser._read_file_safe()` 메서드가 UTF-8 인코딩 실패 시 로깅하고 빈 문자열을 반환하여 크래시를 방지합니다.
 
 ---
+
+
+## 7. 주요 LLM 에이전트들의 codebase indexing 기법 참조
+
+- 클로드: https://support.claude.com/en/articles/12386420-claude-code-faq?q=codebase+indexing
+- Roo code: https://docs.roocode.com/features/codebase-indexing
+- Cursor: https://cursor.com/docs/context/codebase-indexing
