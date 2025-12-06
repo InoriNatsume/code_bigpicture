@@ -27,6 +27,9 @@ class TreeSitterParser(BaseParser):
         'c_sharp': ['invocation_expression'],
         'go': ['call_expression'],
         'rust': ['call_expression'],
+        'vue': ['call_expression'],
+        'svelte': ['call_expression'],
+        'cuda': ['call_expression'],
     }
 
     NODE_TYPE_MAP = {
@@ -36,6 +39,7 @@ class TreeSitterParser(BaseParser):
         'java': { 'class': ['class_declaration'], 'function': ['method_declaration'], 'params': ['formal_parameters'] },
         'cpp': { 'class': ['class_specifier'], 'function': ['function_definition'], 'params': ['parameter_list'] },
         'c_sharp': { 'class': ['class_declaration'], 'function': ['method_declaration'], 'params': ['parameter_list'] },
+        'cuda': { 'class': ['class_specifier'], 'function': ['function_definition'], 'params': ['parameter_list'] },
     }
 
     EXT_TO_LANG = {
@@ -52,6 +56,8 @@ class TreeSitterParser(BaseParser):
         '.rs': ('rust', 'tree_sitter_rust'),
         '.vue': ('vue', 'tree_sitter_vue'),
         '.svelte': ('svelte', 'tree_sitter_svelte'),
+        '.cu': ('cuda', 'tree_sitter_cpp'),
+        '.cuh': ('cuda', 'tree_sitter_cpp'),
     }
 
     def __init__(self):

@@ -23,6 +23,13 @@ Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP �
 - FastMCP: MCP 프로토콜 구현
 - Python 3.x
 
+**설치 방법:**
+```bash
+pip install -r requirements.txt
+```
+
+**참고:** Vue와 Svelte 파서는 PyPI에 공식 패키지로 제공되지 않을 수 있습니다. 자세한 내용은 [6. 지원 언어 및 파일 확장자](#6-지원-언어-및-파일-확장자) 섹션을 참고하세요.
+
 ---
 
 ## 2. 시스템 아키텍처 (System Architecture)
@@ -87,7 +94,7 @@ graph TD
 *   **인덱싱:** 프로젝트 열기 시 자동으로 Call Graph 구축 (진행 상황 표시)
 *   **네비게이션:** Call Graph 아이템 클릭 시 해당 파일/라인으로 자동 이동
 *   **순환 참조 방지:** 재귀적 탐색 시 최대 깊이 제한(max_depth=10) 및 방문 노드 추적
-*   **지원 파일 형식:** `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go` (Call Graph 구축 대상)
+*   **지원 파일 형식:** `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`, `.vue`, `.svelte`, `.cu`, `.cuh` (Call Graph 구축 대상)
 *   **스니펫 표시:** 각 호출 위치의 코드 스니펫을 툴팁으로 제공
 
 ---
@@ -186,7 +193,7 @@ class SymbolNode:
   - `definitions`: 함수명 → 정의 파일 경로 리스트 매핑
 
 **프로세스:**
-1. 프로젝트 루트에서 지원되는 소스 파일 수집 (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`)
+1. 프로젝트 루트에서 지원되는 소스 파일 수집 (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`, `.vue`, `.svelte`, `.cu`, `.cuh`)
 2. 각 파일에 대해 `TreeSitterParser.extract_calls()` 실행하여 함수 정의 및 호출 추출
 3. 호출 정보를 `CallGraph` 인스턴스에 저장 (메모리 기반)
 4. GUI에서 심볼 클릭 시 `call_graph.get_incoming()`, `call_graph.get_outgoing()`으로 정보 조회
@@ -213,11 +220,16 @@ class SymbolNode:
 - Rust: `.rs`
 - Vue: `.vue`
 - Svelte: `.svelte`
+- CUDA: `.cu`, `.cuh`
 
 **Call Graph 구축 대상:**
-- Python, JavaScript, TypeScript, Java, C++, C, C#, Go (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`)
+- Python, JavaScript, TypeScript, Java, C++, C, C#, Go, Vue, Svelte, CUDA (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`, `.vue`, `.svelte`, `.cu`, `.cuh`)
 
-**참고:** Vue와 Svelte 파일은 파싱은 되지만 Call Graph 구축에서는 제외됩니다.
+**참고사항(추후 AI답변 검토 필요요):**
+- **Vue와 Svelte 파서 설치:** `tree-sitter-vue`와 `tree-sitter-svelte` 파서는 PyPI에 공식 패키지로 제공되지 않을 수 있습니다. 이 경우 다음 방법으로 설치할 수 있습니다:
+  - 소스에서 빌드: [tree-sitter-vue](https://github.com/ikatyang/tree-sitter-vue), [tree-sitter-svelte](https://github.com/Himujjal/tree-sitter-svelte)
+  - 또는 `py-tree-sitter-vue`, `py-tree-sitter-svelte` 패키지가 사용 가능한 경우: `pip install py-tree-sitter-vue py-tree-sitter-svelte`
+- **CUDA 파일:** CUDA 파일(`.cu`, `.cuh`)은 C++ 파서(`tree-sitter-cpp`)를 사용하여 파싱됩니다.
 
 ## 7. 에이전트 작업 지시 사항 (Instructions for Agent)
 

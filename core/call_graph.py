@@ -32,7 +32,7 @@ class CallGraph:
                 return
             dirs[:] = [d for d in dirs if d not in exclude]
             for f in files:
-                if f.endswith(('.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.go')):
+                if f.endswith(('.py', '.js', '.ts', '.java', '.cpp', '.c', '.cs', '.go', '.vue', '.svelte', '.cu', '.cuh')):
                     all_files.append(os.path.join(root, f))
 
         total = len(all_files)

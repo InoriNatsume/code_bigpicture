@@ -1,0 +1,36 @@
+# Code-Context-Bridge v4.1 Requirements
+# 
+# 설치 방법:
+#   pip install -r requirements.txt
+#
+# 참고: Vue와 Svelte 파서는 PyPI에 없을 수 있으므로 별도 설치가 필요할 수 있습니다.
+
+# GUI Framework
+PyQt6>=6.10.0
+
+# MCP Server
+mcp>=1.23.0
+
+# Tree-sitter Core
+tree-sitter>=0.25.0
+
+# Tree-sitter Language Parsers
+tree-sitter-python>=0.25.0
+tree-sitter-javascript>=0.25.0
+tree-sitter-typescript>=0.23.0
+tree-sitter-java>=0.23.0
+tree-sitter-cpp>=0.23.0
+tree-sitter-c-sharp>=0.23.0
+tree-sitter-go>=0.25.0
+tree-sitter-rust>=0.24.0
+
+# Optional: Vue and Svelte parsers
+# Note: These packages may not be available on PyPI and may need to be built from source
+# For Vue: See https://github.com/ikatyang/tree-sitter-vue
+# For Svelte: See https://github.com/Himujjal/tree-sitter-svelte
+# If available, install with: pip install py-tree-sitter-vue py-tree-sitter-svelte
+
+# Optional: Windows-specific (for Windows users)
+# Uncomment the line below if you're on Windows and need Windows-specific features
+# pywin32>=311; sys_platform == "win32"
+
