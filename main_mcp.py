@@ -37,7 +37,10 @@ def set_project_root(path: str) -> None:
 # --- Helper Functions ---
 
 def _generate_skeleton_string(node: SymbolNode, indent: int = 0) -> str:
-    """SymbolNode 트리를 텍스트 형태의 스켈레톤으로 변환"""
+    """
+    SymbolNode 트리를 텍스트 형태의 스켈레톤으로 변환
+    v4.2: 데코레이터와 베이스 클래스 정보 포함
+    """
     spaces = "  " * indent
     result = ""
     
@@ -45,9 +48,20 @@ def _generate_skeleton_string(node: SymbolNode, indent: int = 0) -> str:
     if node.kind == "file":
         result += f"{spaces}[File] {node.name}\n"
     else:
+        # 데코레이터가 있으면 먼저 출력
+        if node.decorators:
+            for decorator in node.decorators:
+                result += f"{spaces}{decorator}\n"
+        
         # 시그니처가 있으면 시그니처를, 없으면 이름만
         display = node.signature if node.signature else f"{node.kind} {node.name}"
-        result += f"{spaces}{display} (Lines: {node.start_line}-{node.end_line})\n"
+        result += f"{spaces}{display} (Lines: {node.start_line}-{node.end_line})"
+        
+        # 베이스 클래스가 있으면 표시
+        if node.base_classes:
+            result += f" -> Inherits: {', '.join(node.base_classes)}"
+        
+        result += "\n"
 
     for child in node.children:
         result += _generate_skeleton_string(child, indent + 1)

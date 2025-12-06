@@ -1,4 +1,4 @@
-# Code-Context-Bridge v4.1
+# Code-Context-Bridge v4.2
 
 Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP 서버를 통해 코드 구조, 심볼, 함수 호출 관계를 시각화하고 AI 에이전트에게 제공합니다.
 
@@ -10,6 +10,9 @@ Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP �
    - 파일 트리 뷰어와 심볼 트리 뷰어
    - 실시간 심볼 검색 (현재 파일 / 프로젝트 전체)
    - Call Graph 시각화 (Incoming/Outgoing 함수 호출 관계)
+   - **[v4.2 NEW]** 데코레이터 정보 표시 (Python, TypeScript, JavaScript)
+   - **[v4.2 NEW]** 클래스 상속 계층 표시
+   - **[v4.2 NEW]** LLM용 컨텍스트 원클릭 복사
    - 프로젝트 인덱싱 및 진행 상황 표시
 
 2. **MCP 서버** (`main_mcp.py`)
@@ -96,6 +99,37 @@ graph TD
 *   **순환 참조 방지:** 재귀적 탐색 시 최대 깊이 제한(max_depth=10) 및 방문 노드 추적
 *   **지원 파일 형식:** `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`, `.vue`, `.svelte`, `.cu`, `.cuh` (Call Graph 구축 대상)
 *   **스니펫 표시:** 각 호출 위치의 코드 스니펫을 툴팁으로 제공
+
+### 3.4 Python 특화 기능 (v4.2) - GUI & MCP
+
+#### 3.4.1 데코레이터 지원
+*   **자동 추출:** Python, TypeScript, JavaScript의 함수/클래스 데코레이터 자동 인식
+*   **GUI 표시:** 시그니처 앞에 데코레이터 표시 (예: `@torch.no_grad() def forward(self, x):`)
+*   **툴팁 정보:** 데코레이터 목록을 별도 라인으로 표시
+*   **MCP 응답:** `read_skeleton` 출력에 데코레이터 포함
+*   **사용 사례:** PyTorch의 `@torch.no_grad()`, `@staticmethod`, FastAPI의 `@app.get()` 등
+
+#### 3.4.2 클래스 상속 정보
+*   **베이스 클래스 추출:** Python, TypeScript, JavaScript, Java의 상속 관계 파싱
+*   **GUI 표시:** 클래스 툴팁에 "Inherits from: nn.Module, BaseClass" 형식으로 표시
+*   **MCP 응답:** skeleton에 `-> Inherits: nn.Module` 정보 포함
+*   **지원 언어:**
+    - Python: `class MyModel(nn.Module, ABC):`
+    - TypeScript/JavaScript: `class MyClass extends BaseClass`
+    - Java: `class MyClass extends Base implements Interface`
+
+#### 3.4.3 LLM용 컨텍스트 복사
+*   **원클릭 복사:** 우클릭 메뉴 → "🤖 Copy Context for LLM" 
+*   **마크다운 출력:** 
+    - 파일 경로 (상대 경로)
+    - 심볼명과 종류 (function, class, method)
+    - 라인 번호 범위
+    - 데코레이터 목록 (있는 경우)
+    - 상속 정보 (클래스인 경우)
+    - 코드 스니펫 (syntax highlighting 언어 태그 포함)
+*   **사용 시나리오:** ChatGPT/Claude 웹 UI에 코드 컨텍스트를 빠르게 공유
+*   **피드백:** 상태바에 "✅ Context copied to clipboard for LLM!" 메시지 표시
+
 
 ---
 

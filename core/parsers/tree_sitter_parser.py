@@ -15,7 +15,8 @@ except ImportError:
 
 class TreeSitterParser(BaseParser):
     """
-    v4.1 Update: Call Graph 정확도 향상 (Snippet 및 Line Number 추출)
+    v4.1: Call Graph 정확도 향상 (Snippet 및 Line Number 추출)
+    v4.2: 데코레이터 및 클래스 상속 정보 추출 지원
     """
     
     CALL_TYPE_MAP = {
@@ -103,11 +104,130 @@ class TreeSitterParser(BaseParser):
             name = self._extract_name(node, lines)
             sig = self._extract_signature(node, b_text, lang, name)
             sig = re.sub(r'\s+', ' ', sig).strip()
-            new_node = SymbolNode(name, kind, node.start_point[0]+1, node.end_point[0]+1, parent.path, sig)
+            
+            # 데코레이터 추출 (함수/클래스)
+            decorators = self._extract_decorators(node, lines, lang)
+            
+            # 베이스 클래스 추출 (클래스만)
+            base_classes = []
+            if kind == 'class':
+                base_classes = self._extract_base_classes(node, lines, lang)
+            
+            new_node = SymbolNode(
+                name, kind, 
+                node.start_point[0]+1, node.end_point[0]+1, 
+                parent.path, sig,
+                decorators=decorators,
+                base_classes=base_classes
+            )
             parent.add_child(new_node)
             current = new_node
         for child in node.children:
             self._traverse_tree(child, current, lang, lines, b_text)
+
+    def _extract_decorators(self, node, lines, lang) -> List[str]:
+        """
+        함수나 클래스 정의 앞의 데코레이터들을 추출합니다.
+        Python: decorated_definition -> decorator 노드들
+        TypeScript/JavaScript: decorator 노드들
+        """
+        decorators = []
+        
+        if lang == 'python':
+            # Python의 경우 부모 노드가 decorated_definition인지 확인
+            parent = node.parent
+            if parent and parent.type == 'decorated_definition':
+                for child in parent.children:
+                    if child.type == 'decorator':
+                        # 데코레이터 전체 텍스트 추출 (@ 포함)
+                        r1, c1 = child.start_point
+                        r2, c2 = child.end_point
+                        if r1 < len(lines):
+                            if r1 == r2:
+                                # 한 줄에 있는 경우
+                                decorator_text = lines[r1][c1:c2].strip()
+                            else:
+                                # 여러 줄에 걸친 경우 (드물지만 가능)
+                                decorator_text = lines[r1][c1:].strip()
+                            decorators.append(decorator_text)
+        
+        elif lang in ['typescript', 'javascript']:
+            # TypeScript/JavaScript decorator 지원
+            # decorator 노드를 직접 찾기
+            for child in node.children:
+                if child.type == 'decorator':
+                    r1, c1 = child.start_point
+                    r2, c2 = child.end_point
+                    if r1 < len(lines):
+                        decorator_text = lines[r1][c1:c2].strip()
+                        decorators.append(decorator_text)
+        
+        return decorators
+
+    def _extract_base_classes(self, node, lines, lang) -> List[str]:
+        """
+        클래스 정의에서 상속받은 베이스 클래스들을 추출합니다.
+        Python: argument_list 내의 식별자들
+        TypeScript/JavaScript: class_heritage/extends_clause
+        Java: superclass/super_interfaces
+        """
+        base_classes = []
+        
+        if lang == 'python':
+            # Python: class ClassName(Base1, Base2): 형태
+            # class_definition -> argument_list
+            for child in node.children:
+                if child.type == 'argument_list':
+                    # argument_list 내부의 모든 식별자/속성 추출
+                    base_classes = self._extract_identifiers_from_arguments(child, lines)
+                    break
+        
+        elif lang in ['typescript', 'javascript']:
+            # TypeScript/JavaScript: class ClassName extends BaseClass
+            for child in node.children:
+                if child.type in ['class_heritage', 'extends_clause']:
+                    # 상속 표현식에서 클래스명 추출
+                    base_classes = self._extract_identifiers_recursive(child, lines)
+                    break
+        
+        elif lang == 'java':
+            # Java: extends 및 implements
+            for child in node.children:
+                if child.type in ['superclass', 'super_interfaces']:
+                    base_classes.extend(self._extract_identifiers_recursive(child, lines))
+        
+        return base_classes
+
+    def _extract_identifiers_from_arguments(self, arg_node, lines) -> List[str]:
+        """argument_list에서 식별자들을 추출 (Python 베이스 클래스용)"""
+        identifiers = []
+        for child in arg_node.children:
+            if child.type == 'identifier':
+                r1, c1 = child.start_point
+                r2, c2 = child.end_point
+                if r1 < len(lines):
+                    identifiers.append(lines[r1][c1:c2])
+            elif child.type == 'attribute':
+                # 예: nn.Module 같은 속성 접근
+                r1, c1 = child.start_point
+                r2, c2 = child.end_point
+                if r1 < len(lines):
+                    identifiers.append(lines[r1][c1:c2])
+        return identifiers
+
+    def _extract_identifiers_recursive(self, node, lines) -> List[str]:
+        """재귀적으로 노드에서 식별자들을 추출"""
+        identifiers = []
+        if node.type == 'identifier':
+            r1, c1 = node.start_point
+            r2, c2 = node.end_point
+            if r1 < len(lines):
+                identifiers.append(lines[r1][c1:c2])
+        else:
+            for child in node.children:
+                identifiers.extend(self._extract_identifiers_recursive(child, lines))
+        return identifiers
+
 
     # --- Improved Call Extraction ---
     def extract_calls(self, file_path: str) -> Dict[str, List[Dict]]:

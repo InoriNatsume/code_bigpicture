@@ -53,7 +53,7 @@ class IndexingWorker(QThread):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Code-Context-Bridge v4.1 (Call Graph with Snippets)")
+        self.setWindowTitle("Code-Context-Bridge v4.2 (Python-Specialized Features)")
         self.resize(1500, 950)
         
         self.current_symbol_root = None
@@ -425,6 +425,8 @@ class MainWindow(QMainWindow):
         menu.addAction("📋 Copy Name Only", lambda: self.copy_to_clipboard(item, 'name'))
         menu.addAction("📑 Copy Full Signature", lambda: self.copy_to_clipboard(item, 'signature'))
         menu.addSeparator()
+        menu.addAction("🤖 Copy Context for LLM", lambda: self.copy_context_for_llm(item))
+        menu.addSeparator()
         menu.addAction("🔍 Send to Search Bar", lambda: self.send_to_search(item))
         menu.exec(self.symbol_tree.viewport().mapToGlobal(position))
 
@@ -441,6 +443,75 @@ class MainWindow(QMainWindow):
         if name:
             self.search_input.setText(name)
             self.search_input.setFocus()
+    
+    def copy_context_for_llm(self, item):
+        """
+        선택한 심볼의 컨텍스트를 LLM 친화적 마크다운 형식으로 클립보드에 복사합니다.
+        """
+        node = item.data(0, Qt.ItemDataRole.UserRole + 3)
+        if not node:
+            # 노드 정보가 없으면 기본 정보만 복사
+            name = item.data(0, Qt.ItemDataRole.UserRole)
+            sig = item.data(0, Qt.ItemDataRole.UserRole + 1)
+            QApplication.clipboard().setText(sig or name)
+            self.statusBar().showMessage("✅ Copied to clipboard!", 3000)
+            return
+        
+        # 파일에서 실제 코드 읽기
+        try:
+            from utils.file_utils import read_file_safe
+            file_content = read_file_safe(node.path)
+            if not file_content:
+                self.statusBar().showMessage("❌ Failed to read file", 3000)
+                return
+            
+            lines = file_content.splitlines()
+            # 1-indexed to 0-indexed
+            start_idx = max(0, node.start_line - 1)
+            end_idx = min(len(lines), node.end_line)
+            code_snippet = '\n'.join(lines[start_idx:end_idx])
+            
+            # 파일 확장자로 언어 추정
+            ext = os.path.splitext(node.path)[1].lower()
+            lang_map = {
+                '.py': 'python', '.js': 'javascript', '.ts': 'typescript',
+                '.java': 'java', '.cpp': 'cpp', '.c': 'c', '.cs': 'csharp',
+                '.go': 'go', '.rs': 'rust', '.vue': 'vue', '.svelte': 'svelte'
+            }
+            lang = lang_map.get(ext, 'python')
+            
+            # 상대 경로 계산
+            if self.project_root_path:
+                rel_path = os.path.relpath(node.path, self.project_root_path)
+            else:
+                rel_path = node.path
+            
+            # 마크다운 형식으로 컨텍스트 생성
+            context_parts = [
+                f"**File:** `{rel_path}`",
+                f"**Symbol:** `{node.name}` ({node.kind})",
+                f"**Lines:** {node.start_line}-{node.end_line}",
+            ]
+            
+            if node.decorators:
+                context_parts.append(f"**Decorators:** {', '.join([f'`{d}`' for d in node.decorators])}")
+            
+            if node.base_classes:
+                context_parts.append(f"**Inherits from:** {', '.join([f'`{c}`' for c in node.base_classes])}")
+            
+            context_parts.append("")  # 빈 줄
+            context_parts.append("---")
+            context_parts.append(f"```{lang}")
+            context_parts.append(code_snippet)
+            context_parts.append("```")
+            
+            final_context = '\n'.join(context_parts)
+            QApplication.clipboard().setText(final_context)
+            self.statusBar().showMessage("✅ Context copied to clipboard for LLM!", 3000)
+            
+        except Exception as e:
+            logger.error(f"Error copying context: {e}")
+            self.statusBar().showMessage(f"❌ Error: {e}", 3000)
 
     def on_file_clicked(self, index, target_line=None, highlight_symbol=None):
         self.global_result_list.setVisible(False)
@@ -469,8 +540,15 @@ class MainWindow(QMainWindow):
 
     def render_tree(self, root_node: SymbolNode):
         self.symbol_tree.clear()
+        self.current_symbol_root = root_node
+        
         def add_items(node: SymbolNode, parent_item):
+            # 데코레이터가 있으면 시그니처 앞에 표시
             display_text = node.signature if node.signature else node.name
+            if node.decorators:
+                decorator_str = ' '.join(node.decorators)
+                display_text = f"{decorator_str} {display_text}"
+            
             kind_icon = "📄 " if node.kind == 'file' else ("📦 " if node.kind == 'class' else ("ƒ " if 'function' in node.kind else "🔹 "))
             
             item = QTreeWidgetItem(parent_item)
@@ -481,7 +559,17 @@ class MainWindow(QMainWindow):
             item.setData(0, Qt.ItemDataRole.UserRole, node.name)
             item.setData(0, Qt.ItemDataRole.UserRole + 1, node.signature)
             item.setData(2, Qt.ItemDataRole.UserRole, node.start_line)
-            if node.signature: item.setToolTip(0, node.signature)
+            # 노드 자체를 저장 (컨텍스트 복사용)
+            item.setData(0, Qt.ItemDataRole.UserRole + 3, node)
+            
+            # 툴팁에 데코레이터와 베이스 클래스 정보 포함
+            tooltip_parts = [node.signature] if node.signature else [node.name]
+            if node.decorators:
+                tooltip_parts.insert(0, f"Decorators: {', '.join(node.decorators)}")
+            if node.base_classes:
+                tooltip_parts.append(f"Inherits from: {', '.join(node.base_classes)}")
+            if tooltip_parts:
+                item.setToolTip(0, '\n'.join(tooltip_parts))
 
             for child in node.children: add_items(child, item)
             return item

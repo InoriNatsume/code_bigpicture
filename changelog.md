@@ -1,5 +1,46 @@
 # Changelog
 
+## [v4.2] - Python 특화 기능 추가
+
+### 주요 기능
+- **데코레이터 지원**: Python, TypeScript, JavaScript의 데코레이터 정보 추출 및 표시
+  - GUI: 함수/클래스 시그니처 앞에 데코레이터 표시 (예: `@torch.no_grad() def forward(...)`)
+  - MCP: `read_skeleton` 응답에 데코레이터 포함
+  - 툴팁: 데코레이터 목록 별도 표시
+  
+- **클래스 상속 정보**: 베이스 클래스 추출 및 표시
+  - GUI: 클래스 툴팁에 "Inherits from: ..." 표시
+  - MCP: skeleton 응답에 상속 정보 포함
+  - Python: `class MyModel(nn.Module)` → `['nn.Module']`
+  - TypeScript/JavaScript/Java: `extends`/`implements` 지원
+  
+- **LLM용 컨텍스트 복사**: AI 에이전트 사용을 위한 원클릭 복사 기능
+  - 우클릭 메뉴: "🤖 Copy Context for LLM" 옵션 추가
+  - 마크다운 형식 출력: 파일 경로, 심볼명, 라인 번호, 데코레이터, 코드 스니펫 포함
+  - 상태바 피드백: 복사 성공 시 "✅ Context copied to clipboard for LLM!" 메시지
+
+### 데이터 모델 변경
+- `SymbolNode`: `decorators: List[str]`, `base_classes: List[str]` 필드 추가
+- `to_dict()`: 선택적 필드로 JSON 응답에 포함 (비어있으면 생략)
+
+### 파서 개선
+- `TreeSitterParser._extract_decorators()`: 다중 언어 데코레이터 추출
+  - Python: `decorated_definition` → `decorator` 노드 파싱
+  - TypeScript/JavaScript: `decorator` 노드 지원
+- `TreeSitterParser._extract_base_classes()`: 상속 관계 추출
+  - Python: `argument_list` 파싱
+  - TypeScript/JavaScript: `class_heritage`, `extends_clause`
+  - Java: `superclass`, `super_interfaces`
+
+### 사용 사례
+- **PyTorch 개발**: `@torch.no_grad()`, `@staticmethod` 등 데코레이터 정보 즉시 파악
+- **ComfyUI 커스텀 노드**: `nn.Module` 상속 구조 추적
+- **웹 UI 사용**: MCP 없이도 ChatGPT/Claude에 코드 컨텍스트 빠르게 공유
+
+---
+
+
+
 ## [v4.1] - Call Graph 기능 추가
 
 ### 주요 기능
