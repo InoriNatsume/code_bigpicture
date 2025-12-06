@@ -1,8 +1,27 @@
-# Project Design Document: Code-Context-Bridge (CCB) v2.0
-(Inc. MCP Server & Search Features)
+# Code-Context-Bridge v4.1
+
+Tree-sitter 기반 다중 언어 소스 코드 분석 도구. PyQt6 GUI와 MCP 서버를 통해 코드 구조, 심볼, 함수 호출 관계를 시각화하고 AI 에이전트에게 제공합니다.
 
 ## 1. 프로젝트 개요 (Overview)
-본 프로젝트는 대규모 소스 코드의 **구조(Structure)**와 **심볼(Symbol)**을 분석하여, **1) 인간을 위한 GUI 뷰어**와 **2) AI를 위한 MCP(Model Context Protocol) 인터페이스**를 동시에 제공하는 "하이브리드 코드 분석 엔진"이다.
+
+**Code-Context-Bridge**는 Tree-sitter 파서를 사용하여 Python, JavaScript, TypeScript, Java, C++, C#, Go, Rust, Vue, Svelte 등 10개 언어의 소스 코드를 파싱하고, 다음 기능을 제공합니다:
+
+1. **PyQt6 GUI 애플리케이션** (`main_gui.py`)
+   - 파일 트리 뷰어와 심볼 트리 뷰어
+   - 실시간 심볼 검색 (현재 파일 / 프로젝트 전체)
+   - Call Graph 시각화 (Incoming/Outgoing 함수 호출 관계)
+   - 프로젝트 인덱싱 및 진행 상황 표시
+
+2. **MCP 서버** (`main_mcp.py`)
+   - Claude/GPT 등 AI 에이전트를 위한 Model Context Protocol 인터페이스
+   - 프로젝트 구조 조회, 심볼 검색, 코드 스켈레톤 추출, 전체 코드 읽기 기능 제공
+   - stdio 방식으로 실행 (FastMCP 라이브러리 사용)
+
+**핵심 기술 스택:**
+- Tree-sitter: 다중 언어 파싱 엔진
+- PyQt6: GUI 프레임워크
+- FastMCP: MCP 프로토콜 구현
+- Python 3.x
 
 ---
 
@@ -20,6 +39,9 @@ graph TD
         MCP --> ParserFactory
         ParserFactory --> TreeSitter[Tree-sitter Parsers]
         TreeSitter --> SymbolNode[Data Model]
+        TreeSitter --> CallGraph[Call Graph Builder]
+        CallGraph --> Incoming[Incoming Calls]
+        CallGraph --> Outgoing[Outgoing Calls]
     end
     
     TreeSitter --> FileSystem[Source Files]
@@ -28,11 +50,14 @@ graph TD
 ### 2.1 디렉토리 구조 (Directory Structure)
 ```
 /
-├── main_gui.py            # [EntryPoint] 사람용 GUI
+├── main_gui.py            # [EntryPoint] 사람용 GUI (v4.1: Call Graph UI 추가)
 ├── main_mcp.py            # [EntryPoint] AI용 MCP 서버
 ├── core/                  # [Shared] 핵심 로직 (GUI 의존성 없음)
 │   ├── parser_factory.py
+│   ├── call_graph.py      # [v4.1] 함수 호출 관계 추적
 │   ├── parsers/
+│   │   ├── base_parser.py
+│   │   └── tree_sitter_parser.py  # [v4.1] extract_calls() 메서드 추가
 │   └── symbol_node.py
 ├── utils/
 │   └── logger.py          # Stream(Console) + File Logging
@@ -53,6 +78,16 @@ graph TD
     *   사용자 입력 시 실시간(또는 엔터 입력 시) 트리 필터링.
     *   검색어와 일치하는 노드(Node)는 강조 표시.
     *   **Rule:** 자식 노드가 매칭되면 부모 노드는 접히지 않고(Expanded) 보여야 함. 매칭되지 않는 노드는 숨김(Hidden).
+*   **검색 범위:** "Current File" (현재 파일 내 심볼만) 또는 "Entire Project" (프로젝트 전체 검색)
+
+### 3.3 Call Graph 기능 (v4.1) - GUI 전용
+*   **Incoming References (호출자):** 선택한 함수/메서드를 호출하는 모든 함수들을 트리 구조로 표시
+*   **Outgoing References (호출 대상):** 선택한 함수/메서드 내부에서 호출하는 모든 함수들을 트리 구조로 표시
+*   **인덱싱:** 프로젝트 열기 시 자동으로 Call Graph 구축 (진행 상황 표시)
+*   **네비게이션:** Call Graph 아이템 클릭 시 해당 파일/라인으로 자동 이동
+*   **순환 참조 방지:** 재귀적 탐색 시 최대 깊이 제한(max_depth=10) 및 방문 노드 추적
+*   **지원 파일 형식:** `.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go` (Call Graph 구축 대상)
+*   **스니펫 표시:** 각 호출 위치의 코드 스니펫을 툴팁으로 제공
 
 ---
 
@@ -74,56 +109,105 @@ AI에게 제공할 함수(Tools) 목록:
     *   설명: 스켈레톤을 보고 AI가 특정 구현부가 필요하다고 판단하면, 해당 라인의 실제 코드를 조회.
 
 ### 4.2 실행 방식
-*   **CLI 명령:** `python main_mcp.py --path "C:/TargetProject"`
+*   **CLI 명령:** `python main_mcp.py` (stdio 방식)
 *   AI 에이전트 설정 파일에 위 명령어를 등록하여 사용.
+*   **주의:** 현재 버전은 프로젝트 경로를 명령행 인자로 받지 않으며, MCP 도구 호출 시 `project_root` 파라미터로 전달해야 함.
 
 ---
 
 ## 5. 상세 구현 가이드 (Implementation Details)
 
-### 5.1 데이터 모델 업데이트 (`core/symbol_node.py`)
-MCP에서 JSON 직렬화를 위해 `to_dict()` 메서드 추가.
+### 5.1 데이터 모델 (`core/symbol_node.py`)
+MCP에서 JSON 직렬화를 위해 `to_dict()` 메서드가 구현되어 있습니다.
 
+**실제 구현:**
 ```python
 @dataclass
 class SymbolNode:
-    # ... (기존 필드) ...
+    name: str
+    kind: str
+    start_line: int
+    end_line: int
+    path: str = ""
+    signature: str = ""
+    children: List['SymbolNode'] = field(default_factory=list)
     
-    def to_dict(self):
+    def to_dict(self) -> Dict[str, Any]:
         """MCP 응답용 JSON 변환"""
         return {
             "name": self.name,
             "kind": self.kind,
+            "path": self.path,
+            "range": {
+                "start": self.start_line,
+                "end": self.end_line
+            },
             "signature": self.signature,
             "children": [child.to_dict() for child in self.children]
         }
 ```
 
 ### 5.2 검색 로직 (Filtering Strategy)
-GUI와 MCP가 공유할 검색 유틸리티 함수.
 
-```python
-def search_recursive(node: SymbolNode, query: str) -> List[Dict]:
-    """
-    심볼 트리를 순회하며 쿼리와 일치하는 노드 검색.
-    GUI에서는 뷰 필터링에 쓰고, MCP에서는 결과 리스트 반환에 씀.
-    """
-    results = []
-    if query.lower() in node.name.lower():
-        results.append(node)
-    
-    for child in node.children:
-        results.extend(search_recursive(child, query))
-    return results
-```
+**GUI 검색** (`main_gui.py`):
+- 현재 파일 검색: `filter_tree_recursive()` - 실시간 트리 필터링, 매칭 노드 강조 표시
+- 프로젝트 전체 검색: `perform_global_search()` - `_search_node_recursive()` 사용, 정규식 패턴 매칭
+- 검색 대상: 심볼 이름과 시그니처 (`node.name + node.signature`)
+
+**MCP 검색** (`main_mcp.py`):
+- `_search_recursive()` - 심볼 이름만 매칭 (대소문자 무시)
+- `search_symbol()` 도구에서 사용, 프로젝트 전체 순회
+
+**참고:** GUI와 MCP는 각각 독립적인 검색 로직을 사용하며, GUI는 시그니처까지 검색하지만 MCP는 이름만 검색합니다.
+
+### 5.3 Call Graph 구축 (v4.1)
+프로젝트 전체를 순회하며 함수 호출 관계를 추적하는 시스템.
+
+**구조:**
+- `CallGraph` 클래스 (`core/call_graph.py`): 호출 관계를 저장하는 데이터 구조
+  - `incoming_calls`: 함수명 → 호출자 리스트 매핑 `[{'path': str, 'caller': str, 'line': int, 'snippet': str}]`
+  - `outgoing_calls`: (파일경로, 함수명) 튜플 → 호출 대상 리스트 매핑 `[{'called': str, 'line': int, 'snippet': str}]`
+  - `definitions`: 함수명 → 정의 파일 경로 리스트 매핑
+
+**프로세스:**
+1. 프로젝트 루트에서 지원되는 소스 파일 수집 (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`)
+2. 각 파일에 대해 `TreeSitterParser.extract_calls()` 실행하여 함수 정의 및 호출 추출
+3. 호출 정보를 `CallGraph` 인스턴스에 저장 (메모리 기반)
+4. GUI에서 심볼 클릭 시 `call_graph.get_incoming()`, `call_graph.get_outgoing()`으로 정보 조회
+5. 재귀적 트리 구축 시 `max_depth=10` 제한 및 `visited` set으로 순환 참조 방지
+
+**제한사항:**
+- 동적 호출 (`getattr`, `eval`, `__getattr__` 등)은 추적 불가
+- 메서드 체이닝의 일부 케이스에서 정확도 제한
+- 대규모 프로젝트에서 메모리 사용량 증가 가능 (모든 호출 정보를 메모리에 저장)
+- 경로 정규화 불일치로 인한 일부 호출 정보 누락 가능 (Windows/Unix 경로 차이)
 
 ---
 
-## 6. 에이전트 작업 지시 사항 (Instructions for Agent)
+## 6. 지원 언어 및 파일 확장자
 
-1.  **Core Separation First:** Before building the GUI, implement the `core/` package. Ensure `SymbolNode` and `BaseParser` work independently of PyQt.
-2.  **Console Visible:** Ensure `logging.StreamHandler` is attached to the root logger so the user can see parsing progress in the terminal window.
-3.  **MCP Ready:** Implement the parsing logic such that `get_skeleton()` returns a clean string. The MCP server will wrapper this function.
-4.  **Error Resilience:** If a parser encounters a binary file or encoding issue, log it to Console and **skip** it. Do not crash the MCP server or GUI.
+**파싱 지원 언어 (Tree-sitter 기반):**
+- Python: `.py`
+- JavaScript: `.js`, `.jsx`
+- TypeScript: `.ts`, `.tsx`
+- Java: `.java`
+- C++: `.cpp`, `.h`
+- C#: `.cs`
+- Go: `.go`
+- Rust: `.rs`
+- Vue: `.vue`
+- Svelte: `.svelte`
+
+**Call Graph 구축 대상:**
+- Python, JavaScript, TypeScript, Java, C++, C, C#, Go (`.py`, `.js`, `.ts`, `.java`, `.cpp`, `.c`, `.cs`, `.go`)
+
+**참고:** Vue와 Svelte 파일은 파싱은 되지만 Call Graph 구축에서는 제외됩니다.
+
+## 7. 에이전트 작업 지시 사항 (Instructions for Agent)
+
+1.  **Core Separation First:** `core/` 패키지는 PyQt 의존성 없이 독립적으로 동작해야 합니다. `SymbolNode`와 `BaseParser`는 GUI 없이도 테스트 가능해야 합니다.
+2.  **Console Visible:** `utils/logger.py`의 `setup_logger()`가 `StreamHandler`를 통해 콘솔에 로그를 출력하도록 구현되어 있습니다.
+3.  **MCP Ready:** `read_skeleton()` 함수는 `_generate_skeleton_string()`을 통해 파일의 클래스/함수 정의부만 추출하여 반환합니다.
+4.  **Error Resilience:** `BaseParser._read_file_safe()` 메서드가 UTF-8 인코딩 실패 시 로깅하고 빈 문자열을 반환하여 크래시를 방지합니다.
 
 ---

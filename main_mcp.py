@@ -12,6 +12,7 @@ except ImportError:
 from core.parser_factory import parser_factory
 from core.symbol_node import SymbolNode
 from utils.logger import logger
+from utils.file_utils import read_file_safe
 
 # MCP 서버 초기화
 mcp = FastMCP("Code-Context-Bridge")
@@ -156,22 +157,19 @@ def read_full_code(file_path: str, start_line: int = 1, end_line: int = -1) -> s
     if not os.path.exists(file_path):
         return "Error: File not found."
 
-    try:
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
-            
-        total_lines = len(lines)
-        if end_line == -1 or end_line > total_lines:
-            end_line = total_lines
-        
-        # 1-based index adjustment
-        selected_lines = lines[start_line-1 : end_line]
-        return "".join(selected_lines)
+    # 공통 파일 읽기 유틸리티 사용 (다중 인코딩 지원)
+    content = read_file_safe(file_path)
+    if not content:
+        return "Error: Failed to read file (binary or unsupported encoding)."
     
-    except UnicodeDecodeError:
-        return "Error: Binary file or encoding issue."
-    except Exception as e:
-        return f"Error reading file: {str(e)}"
+    lines = content.splitlines(keepends=True)
+    total_lines = len(lines)
+    if end_line == -1 or end_line > total_lines:
+        end_line = total_lines
+    
+    # 1-based index adjustment
+    selected_lines = lines[start_line-1 : end_line]
+    return "".join(selected_lines)
 
 if __name__ == "__main__":
     # FastMCP는 기본적으로 stdio 방식을 지원합니다.

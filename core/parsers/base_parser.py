@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Optional
 from core.symbol_node import SymbolNode
 from utils.logger import logger
+from utils.file_utils import read_file_safe
 
 class BaseParser(ABC):
     """
@@ -21,22 +22,9 @@ class BaseParser(ABC):
     def _read_file_safe(self, file_path: str) -> str:
         """
         파일을 안전하게 읽습니다. (Design Doc 6.4: Error Resilience)
-        UTF-8로 시도하고 실패하면 에러를 로깅하고 빈 문자열을 반환합니다.
+        공통 유틸리티 함수를 사용합니다.
         """
-        if not os.path.exists(file_path):
-            logger.error(f"File not found: {file_path}")
-            return ""
-
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except UnicodeDecodeError:
-            # 바이너리 파일이거나 인코딩 문제 시 스킵
-            logger.warning(f"Skipping binary or non-utf8 file: {file_path}")
-            return ""
-        except Exception as e:
-            logger.error(f"Error reading file {file_path}: {str(e)}")
-            return ""
+        return read_file_safe(file_path)
 
     def _get_relative_path(self, file_path: str, project_root: str) -> str:
         """절대 경로를 프로젝트 루트 기준 상대 경로로 변환"""

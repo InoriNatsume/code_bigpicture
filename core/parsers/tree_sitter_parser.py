@@ -1,73 +1,43 @@
 import os
 import importlib
-from typing import Optional, Dict, List
+import re
+from typing import Optional, Dict, List, Set
 from core.symbol_node import SymbolNode
 from core.parsers.base_parser import BaseParser
 from utils.logger import logger
 
-# Tree-sitter 라이브러리 임포트
 try:
     from tree_sitter import Parser, Language
     HAS_TREESITTER = True
 except ImportError:
     HAS_TREESITTER = False
-    logger.warning("Tree-sitter library not found. Please install 'tree-sitter'.")
+    logger.warning("Tree-sitter library not found.")
 
 class TreeSitterParser(BaseParser):
     """
-    Tree-sitter를 사용하여 다국어 코드를 분석하는 파서.
-    (Tree-sitter 0.22+ 최신 API 대응: set_language 제거됨)
+    v4.1 Update: Call Graph 정확도 향상 (Snippet 및 Line Number 추출)
     """
-
-    # 언어별 노드 타입 매핑
-    NODE_TYPE_MAP = {
-        'python': {
-            'class': ['class_definition'],
-            'function': ['function_definition', 'async_function_definition']
-        },
-        'javascript': {
-            'class': ['class_declaration'],
-            'function': ['function_declaration', 'method_definition', 'arrow_function', 'generator_function']
-        },
-        'typescript': {
-            'class': ['class_declaration', 'interface_declaration', 'enum_declaration'],
-            'function': ['function_declaration', 'method_definition', 'function_signature']
-        },
-        'java': {
-            'class': ['class_declaration', 'interface_declaration', 'enum_declaration'],
-            'function': ['method_declaration', 'constructor_declaration']
-        },
-        'go': {
-            'class': ['type_declaration'],
-            'function': ['function_declaration', 'method_declaration']
-        },
-        'cpp': {
-            'class': ['class_specifier', 'struct_specifier', 'concept_definition'],
-            'function': ['function_definition', 'template_function']
-        },
-        'cuda': {
-            'class': ['class_specifier', 'struct_specifier'],
-            'function': ['function_definition', 'kernel_definition']
-        },
-        'c_sharp': {
-            'class': ['class_declaration', 'struct_declaration', 'interface_declaration', 'enum_declaration'],
-            'function': ['method_declaration', 'constructor_declaration']
-        },
-        'rust': {
-            'class': ['struct_item', 'enum_item', 'trait_item', 'impl_item'], 
-            'function': ['function_item']
-        },
-        'vue': {
-            'class': [], 
-            'function': [] 
-        },
-        'svelte': {
-            'class': [],
-            'function': []
-        }
+    
+    CALL_TYPE_MAP = {
+        'python': ['call'],
+        'javascript': ['call_expression'],
+        'typescript': ['call_expression'],
+        'java': ['method_invocation', 'object_creation_expression'],
+        'cpp': ['call_expression'],
+        'c_sharp': ['invocation_expression'],
+        'go': ['call_expression'],
+        'rust': ['call_expression'],
     }
 
-    # 파일 확장자 -> (Tree-sitter 언어 이름, 패키지 모듈 이름)
+    NODE_TYPE_MAP = {
+        'python': { 'class': ['class_definition'], 'function': ['function_definition', 'async_function_definition'], 'params': ['parameters'] },
+        'javascript': { 'class': ['class_declaration'], 'function': ['function_declaration', 'method_definition', 'arrow_function'], 'params': ['formal_parameters'] },
+        'typescript': { 'class': ['class_declaration'], 'function': ['function_declaration', 'method_definition'], 'params': ['formal_parameters', 'function_signature'] },
+        'java': { 'class': ['class_declaration'], 'function': ['method_declaration'], 'params': ['formal_parameters'] },
+        'cpp': { 'class': ['class_specifier'], 'function': ['function_definition'], 'params': ['parameter_list'] },
+        'c_sharp': { 'class': ['class_declaration'], 'function': ['method_declaration'], 'params': ['parameter_list'] },
+    }
+
     EXT_TO_LANG = {
         '.py': ('python', 'tree_sitter_python'),
         '.js': ('javascript', 'tree_sitter_javascript'),
@@ -75,22 +45,16 @@ class TreeSitterParser(BaseParser):
         '.ts': ('typescript', 'tree_sitter_typescript'),
         '.tsx': ('typescript', 'tree_sitter_typescript'),
         '.java': ('java', 'tree_sitter_java'),
-        '.go': ('go', 'tree_sitter_go'),
         '.cpp': ('cpp', 'tree_sitter_cpp'),
-        '.c': ('cpp', 'tree_sitter_cpp'),
-        '.cc': ('cpp', 'tree_sitter_cpp'),
         '.h': ('cpp', 'tree_sitter_cpp'),
-        '.hpp': ('cpp', 'tree_sitter_cpp'),
-        '.cu': ('cuda', 'tree_sitter_cuda'),
-        '.cuh': ('cuda', 'tree_sitter_cuda'),
         '.cs': ('c_sharp', 'tree_sitter_c_sharp'),
+        '.go': ('go', 'tree_sitter_go'),
         '.rs': ('rust', 'tree_sitter_rust'),
         '.vue': ('vue', 'tree_sitter_vue'),
         '.svelte': ('svelte', 'tree_sitter_svelte'),
     }
 
     def __init__(self):
-        # [수정됨] 최신 버전에서는 여기서 Parser()를 미리 생성하지 않습니다.
         self._loaded_languages = {}
 
     def _get_language_info(self, file_path: str):
@@ -98,118 +62,210 @@ class TreeSitterParser(BaseParser):
         return self.EXT_TO_LANG.get(ext.lower(), (None, None))
 
     def _load_language(self, lang_name: str, package_name: str):
-        if lang_name in self._loaded_languages:
-            return self._loaded_languages[lang_name]
-
+        if lang_name in self._loaded_languages: return self._loaded_languages[lang_name]
         try:
-            lang_module = importlib.import_module(package_name)
-            # Tree-sitter 0.22+ 방식: Language(capsule)
-            language = Language(lang_module.language())
-            self._loaded_languages[lang_name] = language
-            return language
-        except ImportError:
-            # 패키지가 없을 경우 조용히 무시 (혹은 로깅)
-            logger.debug(f"Skipping import: {package_name} not installed.")
-            return None
-        except Exception as e:
-            logger.error(f"Error loading language {lang_name}: {e}")
-            return None
+            mod = importlib.import_module(package_name)
+            lang = Language(mod.language())
+            self._loaded_languages[lang_name] = lang
+            return lang
+        except: return None
 
     def parse(self, file_path: str, project_root: str = "") -> Optional[SymbolNode]:
-        if not HAS_TREESITTER:
-            return None
-
-        lang_name, pkg_name = self._get_language_info(file_path)
-        if not lang_name:
-            return None
-
-        code_text = self._read_file_safe(file_path)
-        if not code_text:
-            return None
-
-        try:
-            language = self._load_language(lang_name, pkg_name)
-            if not language:
-                return None
-
-            # [핵심 수정] Parser 생성 시 언어 객체를 직접 전달해야 함 (API 변경 대응)
-            parser = Parser(language)
-            
-            tree = parser.parse(bytes(code_text, "utf8"))
-            
-            root_node = SymbolNode(
-                name=os.path.basename(file_path),
-                kind="file",
-                start_line=1,
-                end_line=len(code_text.splitlines()),
-                path=file_path
-            )
-
-            self._traverse_tree(tree.root_node, root_node, lang_name, code_text.splitlines())
-            
-            return root_node
-
-        except Exception as e:
-            logger.error(f"Tree-sitter parse error in {file_path}: {e}")
-            return None
-
-    def _traverse_tree(self, ts_node, parent_symbol: SymbolNode, lang_name: str, source_lines: List[str]):
-        """AST 순회"""
-        symbol_kind = self._check_node_kind(ts_node.type, lang_name)
-        current_symbol = parent_symbol
-
-        if symbol_kind:
-            name = self._extract_name(ts_node, source_lines)
-            
-            start_row = ts_node.start_point[0]
-            if 0 <= start_row < len(source_lines):
-                signature = source_lines[start_row].strip()
-            else:
-                signature = name
-
-            new_node = SymbolNode(
-                name=name,
-                kind=symbol_kind,
-                start_line=ts_node.start_point[0] + 1,
-                end_line=ts_node.end_point[0] + 1,
-                path=parent_symbol.path,
-                signature=signature
-            )
-            parent_symbol.add_child(new_node)
-            current_symbol = new_node
-
-        for child in ts_node.children:
-            self._traverse_tree(child, current_symbol, lang_name, source_lines)
-
-    def _check_node_kind(self, node_type: str, lang_name: str) -> Optional[str]:
-        config = self.NODE_TYPE_MAP.get(lang_name, {})
+        if not HAS_TREESITTER: return None
+        lang, pkg = self._get_language_info(file_path)
+        if not lang: return None
+        text = self._read_file_safe(file_path)
+        if not text: return None
         
-        # Vue/Svelte 대응
-        if lang_name in ['vue', 'svelte']:
-            if node_type in self.NODE_TYPE_MAP['javascript']['function'] or \
-               node_type in self.NODE_TYPE_MAP['typescript']['function']:
-                return 'function'
-            if node_type in self.NODE_TYPE_MAP['javascript']['class'] or \
-               node_type in self.NODE_TYPE_MAP['typescript']['class']:
-                return 'class'
+        try:
+            language = self._load_language(lang, pkg)
+            if not language: return None
+            parser = Parser(language)
+            tree = parser.parse(bytes(text, "utf8"))
+            
+            root = SymbolNode(os.path.basename(file_path), "file", 1, len(text.splitlines()), file_path)
+            self._traverse_tree(tree.root_node, root, lang, text.splitlines(), bytes(text, "utf8"))
+            return root
+        except Exception as e:
+            logger.error(f"Parse error {file_path}: {e}")
+            return None
 
-        if node_type in config.get('class', []):
-            return 'class'
-        if node_type in config.get('function', []):
-            return 'function'
+    def _traverse_tree(self, node, parent, lang, lines, b_text):
+        kind = self._check_node_kind(node.type, lang)
+        current = parent
+        if kind:
+            name = self._extract_name(node, lines)
+            sig = self._extract_signature(node, b_text, lang, name)
+            sig = re.sub(r'\s+', ' ', sig).strip()
+            new_node = SymbolNode(name, kind, node.start_point[0]+1, node.end_point[0]+1, parent.path, sig)
+            parent.add_child(new_node)
+            current = new_node
+        for child in node.children:
+            self._traverse_tree(child, current, lang, lines, b_text)
+
+    # --- Improved Call Extraction ---
+    def extract_calls(self, file_path: str) -> Dict[str, List[Dict]]:
+        """
+        Returns: { 'caller_func_name': [ {'called': 'target_func', 'line': 10, 'snippet': 'self.target()'} ] }
+        """
+        if not HAS_TREESITTER: return {}
+        lang, pkg = self._get_language_info(file_path)
+        if not lang: return {}
+        text = self._read_file_safe(file_path)
+        if not text: return {}
+        
+        try:
+            language = self._load_language(lang, pkg)
+            parser = Parser(language)
+            tree = parser.parse(bytes(text, "utf8"))
+            lines = text.splitlines()
+            
+            calls_map = {} # Key: Caller, Value: List of call details
+            self._find_definitions_and_calls(tree.root_node, lang, lines, calls_map, "global")
+            return calls_map
+        except Exception as e:
+            logger.error(f"Error extracting calls from {file_path}: {e}")
+            return {}
+
+    def extract_definitions(self, file_path: str) -> List[str]:
+        """
+        파일에서 정의된 모든 함수와 클래스 이름을 추출합니다.
+        Returns: List of function/class names
+        """
+        if not HAS_TREESITTER: return []
+        lang, pkg = self._get_language_info(file_path)
+        if not lang: return []
+        text = self._read_file_safe(file_path)
+        if not text: return []
+        
+        try:
+            language = self._load_language(lang, pkg)
+            parser = Parser(language)
+            tree = parser.parse(bytes(text, "utf8"))
+            lines = text.splitlines()
+            
+            definitions = []
+            self._extract_all_definitions(tree.root_node, lang, lines, definitions)
+            return definitions
+        except Exception as e:
+            logger.error(f"Error extracting definitions from {file_path}: {e}")
+            return []
+
+    def _extract_all_definitions(self, node, lang, lines, definitions_list):
+        """재귀적으로 모든 함수와 클래스 정의를 추출"""
+        kind = self._check_node_kind(node.type, lang)
+        if kind in ['function', 'class']:
+            name = self._extract_name(node, lines)
+            if name and name != "anonymous":
+                definitions_list.append(name)
+        
+        for child in node.children:
+            self._extract_all_definitions(child, lang, lines, definitions_list)
+
+    def _find_definitions_and_calls(self, node, lang, lines, calls_map, current_scope):
+        kind = self._check_node_kind(node.type, lang)
+        new_scope = current_scope
+        if kind == 'function':
+            new_scope = self._extract_name(node, lines)
+            if new_scope not in calls_map: calls_map[new_scope] = []
+
+        if node.type in self.CALL_TYPE_MAP.get(lang, []):
+            called_name = self._extract_called_name(node, lines)
+            if called_name:
+                # 전역 스코프 호출도 추적 (current_scope == "global"인 경우도 처리)
+                scope_key = current_scope if current_scope != "global" else "__global__"
+                if scope_key not in calls_map:
+                    calls_map[scope_key] = []
+                # Snippet 추출 (호출 구문 전체)
+                r1, c1 = node.start_point
+                r2, c2 = node.end_point
+                if r1 < len(lines):
+                    # 한 줄에 다 있으면 그 줄 전체, 여러 줄이면 첫 줄만
+                    snippet = lines[r1].strip()
+                    if r2 > r1: snippet = snippet + " ..."
+                else: snippet = called_name
+                
+                # 중복 방지 (같은 라인에서 같은 함수 호출)
+                # 이미 같은 라인에 같은 함수가 있는지 확인
+                is_duplicate = False
+                for existing_call in calls_map[scope_key]:
+                    if existing_call['called'] == called_name and existing_call['line'] == r1 + 1:
+                        is_duplicate = True
+                        break
+                
+                if not is_duplicate:
+                    calls_map[scope_key].append({
+                        'called': called_name,
+                        'line': r1 + 1,
+                        'snippet': snippet
+                    })
+
+        for child in node.children:
+            self._find_definitions_and_calls(child, lang, lines, calls_map, new_scope)
+
+    def _extract_called_name(self, node, lines) -> str:
+        # Python: call -> function node
+        func_node = node.child_by_field_name('function')
+        if not func_node: func_node = node.child_by_field_name('name')
+        if not func_node and node.child_count > 0: func_node = node.children[0]
+        
+        if not func_node: return ""
+
+        # obj.method() 처리 -> method만 추출
+        if func_node.type == 'attribute':
+            # attribute 노드에서 attribute 필드(메서드 이름) 추출
+            attr_node = func_node.child_by_field_name('attribute')
+            if attr_node:
+                r1, c1 = attr_node.start_point
+                r2, c2 = attr_node.end_point
+                if r1 < len(lines): return lines[r1][c1:c2]
+            # attribute 필드가 없으면 전체를 반환
+            r1, c1 = func_node.start_point
+            r2, c2 = func_node.end_point
+            if r1 < len(lines): 
+                # "self.method"에서 "method"만 추출 시도
+                text = lines[r1][c1:c2]
+                if '.' in text:
+                    return text.split('.')[-1]
+                return text
+        elif func_node.type == 'member_expression':
+            prop_node = func_node.child_by_field_name('property')
+            if prop_node:
+                r1, c1 = prop_node.start_point
+                r2, c2 = prop_node.end_point
+                if r1 < len(lines): return lines[r1][c1:c2]
+            
+        r1, c1 = func_node.start_point
+        r2, c2 = func_node.end_point
+        if r1 < len(lines): return lines[r1][c1:c2]
+        return ""
+
+    def _extract_signature(self, node, b_text, lang, default):
+        p_types = self.NODE_TYPE_MAP.get(lang, {}).get('params', [])
+        p_node = None
+        for c in node.children:
+            if c.type in p_types: p_node = c; break
+            if c.type == 'function_declarator':
+                for sub in c.children: 
+                    if sub.type in p_types: p_node = sub; break
+        if p_node: return b_text[node.start_byte:p_node.end_byte].decode('utf-8', 'ignore')
+        return default
+
+    def _check_node_kind(self, ntype, lang):
+        if lang in ['vue', 'svelte']:
+             if ntype in ['function_declaration', 'method_definition']: return 'function'
+        conf = self.NODE_TYPE_MAP.get(lang, {})
+        if ntype in conf.get('class', []): return 'class'
+        if ntype in conf.get('function', []): return 'function'
         return None
 
-    def _extract_name(self, node, source_lines: List[str]) -> str:
-        for child in node.children:
-            if child.type in ('identifier', 'name', 'type_identifier', 'function_declarator', 'field_identifier'):
-                if child.type == 'function_declarator':
-                     for subchild in child.children:
-                         if subchild.type in ('identifier', 'field_identifier'):
-                             child = subchild
-                             break
-                
-                r1, c1 = child.start_point
-                r2, c2 = child.end_point
-                if r1 < len(source_lines):
-                    return source_lines[r1][c1:c2]
+    def _extract_name(self, node, lines):
+        for c in node.children:
+            if c.type in ('identifier', 'name', 'function_declarator'):
+                if c.type == 'function_declarator':
+                    for sub in c.children:
+                        if sub.type == 'identifier': c = sub; break
+                r1, c1 = c.start_point
+                r2, c2 = c.end_point
+                if r1 < len(lines): return lines[r1][c1:c2]
         return "anonymous"
