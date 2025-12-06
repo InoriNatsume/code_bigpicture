@@ -60,7 +60,8 @@ graph TD
 │   │   └── tree_sitter_parser.py  # [v4.1] extract_calls() 메서드 추가
 │   └── symbol_node.py
 ├── utils/
-│   └── logger.py          # Stream(Console) + File Logging
+│   ├── logger.py          # Stream(Console) + File Logging
+│   └── file_utils.py      # 공통 파일 읽기 유틸리티 (다중 인코딩 지원)
 └── logs/                  # 실행 로그 저장
 ```
 
@@ -99,19 +100,29 @@ AI 에이전트가 로컬 프로젝트를 직접 분석할 수 있도록 표준 
 ### 4.1 제공 도구 (Exposed Tools)
 AI에게 제공할 함수(Tools) 목록:
 
-1.  **`get_project_structure(path: str, depth: int = 2)`**
+1.  **`get_project_structure(path: Optional[str] = None, depth: int = 2)`**
     *   설명: 프로젝트의 폴더 구조와 파일 목록만 빠르게 리턴.
-2.  **`search_symbol(query: str, project_root: str)`**
-    *   설명: 프로젝트 전체에서 특정 함수/클래스 이름 검색. 해당 파일 경로와 라인 번호 리턴.
-3.  **`read_skeleton(file_path: str)`**
+    *   `path`: 프로젝트 루트 경로 (지정하지 않으면 전역 설정 사용)
+2.  **`search_symbol(query: str, project_root: Optional[str] = None)`**
+    *   설명: 프로젝트 전체에서 특정 함수/클래스 **이름만** 검색. 정확하고 빠른 검색을 위해 이름만 매칭합니다.
+    *   `project_root`: 프로젝트 루트 경로 (지정하지 않으면 전역 설정 사용)
+3.  **`search_symbol_with_signature(query: str, project_root: Optional[str] = None)`**
+    *   설명: 프로젝트 전체에서 심볼 **이름과 시그니처를 모두** 검색. 파라미터 이름 등으로 검색할 때 유용합니다.
+    *   주의: 검색 범위가 넓어져 결과가 많을 수 있습니다.
+    *   `project_root`: 프로젝트 루트 경로 (지정하지 않으면 전역 설정 사용)
+4.  **`read_skeleton(file_path: str)`**
     *   설명: **[핵심]** 파일의 전체 코드를 읽지 않고, `def`, `class` 정의부(Signature)만 추출하여 리턴. (토큰 절약)
-4.  **`read_full_code(file_path: str, start_line: int, end_line: int)`**
+5.  **`read_full_code(file_path: str, start_line: int, end_line: int)`**
     *   설명: 스켈레톤을 보고 AI가 특정 구현부가 필요하다고 판단하면, 해당 라인의 실제 코드를 조회.
 
 ### 4.2 실행 방식
-*   **CLI 명령:** `python main_mcp.py` (stdio 방식)
+*   **CLI 명령:** 
+    *   `python main_mcp.py` (stdio 방식)
+    *   `python main_mcp.py --project-root /path/to/project` (프로젝트 루트 지정)
+*   **환경 변수:** `PROJECT_ROOT` 환경 변수로도 프로젝트 루트를 설정할 수 있습니다.
+*   **우선순위:** 명령행 인자 > 환경 변수 > 도구 호출 시 파라미터
 *   AI 에이전트 설정 파일에 위 명령어를 등록하여 사용.
-*   **주의:** 현재 버전은 프로젝트 경로를 명령행 인자로 받지 않으며, MCP 도구 호출 시 `project_root` 파라미터로 전달해야 함.
+*   **참고:** 프로젝트 루트가 전역으로 설정되면, 도구 호출 시 `project_root` 파라미터를 생략할 수 있습니다.
 
 ---
 
@@ -155,10 +166,15 @@ class SymbolNode:
 - 검색 대상: 심볼 이름과 시그니처 (`node.name + node.signature`)
 
 **MCP 검색** (`main_mcp.py`):
-- `_search_recursive()` - 심볼 이름만 매칭 (대소문자 무시)
-- `search_symbol()` 도구에서 사용, 프로젝트 전체 순회
+- `search_symbol()`: `_search_recursive()` 사용 - 심볼 이름만 매칭 (대소문자 무시)
+  - 정확하고 빠른 검색에 적합
+- `search_symbol_with_signature()`: `_search_recursive_with_signature()` 사용 - 이름과 시그니처 모두 검색
+  - 파라미터 이름 등으로 검색할 때 유용하지만 결과가 많을 수 있음
 
-**참고:** GUI와 MCP는 각각 독립적인 검색 로직을 사용하며, GUI는 시그니처까지 검색하지만 MCP는 이름만 검색합니다.
+**참고:** 
+- GUI는 항상 시그니처까지 검색합니다.
+- MCP는 기본적으로 이름만 검색하지만, 필요 시 `search_symbol_with_signature()` 툴을 사용하여 시그니처까지 검색할 수 있습니다.
+- LLM은 일반적으로 `search_symbol()`로 시작하고, 필요할 때만 `search_symbol_with_signature()`를 사용하는 것이 효율적입니다.
 
 ### 5.3 Call Graph 구축 (v4.1)
 프로젝트 전체를 순회하며 함수 호출 관계를 추적하는 시스템.
